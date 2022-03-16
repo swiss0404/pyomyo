@@ -72,18 +72,13 @@ def draw(w, nx, ny, nz):
     drawText((-2.6, 1.6, 2), "Module to visualize quaternion or Euler angles data", 16)
     drawText((-2.6, -2, 2), "Press Escape to exit.", 16)
 
-    if(useQuat):
-        [yaw, pitch , roll] = quat_to_ypr([w, nx, ny, nz])
-        drawText((-2.6, -1.8, 2), "Yaw: %f, Pitch: %f, Roll: %f" %(yaw, pitch, roll), 16)
-        glRotatef(2 * math.acos(w) * 180.00/math.pi, -1 * nx, nz, ny)
-    else:
-        yaw = nx
-        pitch = ny
-        roll = nz
-        drawText((-2.6, -1.8, 2), "Yaw: %f, Pitch: %f, Roll: %f" %(yaw, pitch, roll), 16)
-        glRotatef(-roll, 0.00, 0.00, 1.00)
-        glRotatef(pitch, 1.00, 0.00, 0.00)
-        glRotatef(yaw, 0.00, 1.00, 0.00)
+    yaw = nx
+    pitch = ny
+    roll = nz
+    drawText((-2.6, -1.8, 2), "Yaw: %f, Pitch: %f, Roll: %f" %(yaw, pitch, roll), 16)
+    glRotatef(-roll, 0.00, 0.00, 1.00)
+    glRotatef(pitch, 1.00, 0.00, 0.00)
+    glRotatef(yaw, 0.00, 1.00, 0.00)
 
     glBegin(GL_QUADS)
     glColor3f(0.0, 1.0, 0.0)
