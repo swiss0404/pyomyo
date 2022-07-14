@@ -338,4 +338,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(min_roll,max_roll,min_pitch,max_pitch)
         print("Quitting")
-        quit()
+        pygame.quit()
