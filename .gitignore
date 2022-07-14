@@ -11,6 +11,6 @@ dist/*
 Pipfile
 *.egg-info
 
-
+database.csv
 *.dat
 */.ipynb_checkpoints/*

@@ -177,11 +177,9 @@ def check_is_recording_moe(adjusted_roll,adjusted_pitch):
     if min_roll < adjusted_roll and adjusted_roll < max_roll and min_pitch < adjusted_pitch and adjusted_pitch < max_pitch:
         count_list = count_list[1:]
         count_list.append(1)
-        print(count_list)
     else: 
         count_list = count_list[1:]
         count_list.append(-1)
-        print(count_list)
     if sum(count_list) >= 0:
         return False
     else:
@@ -283,7 +281,6 @@ if __name__ == "__main__":
                 quat, acc, gyro = imu
                 emg = list(r.get())
                 emg_data , moving = emg
-                print(emg)
                 # print("Quaternions:", quat)
                 # print("Acceleration:", acc)
                 # print("Gyroscope:", gyro)
