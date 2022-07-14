@@ -1,3 +1,4 @@
+from cmath import e
 import multiprocessing
 import pandas as pd
 from pyparsing import line
@@ -8,6 +9,7 @@ import math
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from pygame.locals import *
+import pickle
 
 min_roll = -30
 max_roll = 30
@@ -21,7 +23,7 @@ is_recording = False
 is_start = False 
 count_list = [0]*10
 R_myo_tty = str(b'\x00\x03\x00\x00\x08Swiss.np')
-database_file = 'database.csv'
+database_file = 'examples/database.csv'
 
 def cls():
 	# Clear the screen in a cross platform way
@@ -30,17 +32,24 @@ def cls():
 
 # ------------ Myo Setup ---------------
 q = multiprocessing.Queue()
+r = multiprocessing.Queue()
 
-def worker(q):
+def worker(q,r):
 	myo_R = Myo(mode=emg_mode.FILTERED)
 	myo_R.connect()
-	
+
 	def add_to_queue(quat, acc, gyro):
 		imu_data = [quat, acc, gyro]
 		q.put(imu_data)
 
 	myo_R.add_imu_handler(add_to_queue)
-	
+
+	def emg_handler(emg, moving):
+		emg_data = [emg, moving]
+		r.put(emg_data)
+        
+	myo_R.add_emg_handler(emg_handler)
+
 	# Orange logo and bar LEDs
 	myo_R.set_leds([128, 128, 0], [128, 128, 0])
 	# Vibrate to know we connected okay
@@ -258,7 +267,7 @@ if __name__ == "__main__":
 
     video_flags = OPENGL | DOUBLEBUF
     pygame.init()
-    p = multiprocessing.Process(target=worker, args=(q,))
+    p = multiprocessing.Process(target=worker, args=(q,r))
     p.start()
     screen = pygame.display.set_mode((640, 480), video_flags)
     pygame.display.set_caption("IMU orientation visualization")
@@ -272,6 +281,9 @@ if __name__ == "__main__":
             while not(q.empty()):
                 imu = list(q.get())
                 quat, acc, gyro = imu
+                emg = list(r.get())
+                emg_data , moving = emg
+                print(emg)
                 # print("Quaternions:", quat)
                 # print("Acceleration:", acc)
                 # print("Gyroscope:", gyro)
@@ -293,7 +305,7 @@ if __name__ == "__main__":
                 # print("fps: %d" % ((frames*1000)/(pygame.time.get_ticks()-ticks)))
 
                 for ev in pygame.event.get():
-                    if ev.type == QUIT or (ev.type == KEYDOWN and ev.unicode == 'q'):
+                    if ev.type == QUIT:
                         raise KeyboardInterrupt()
                     elif ev.type == KEYDOWN:
                         if ev.unicode == 'c':
@@ -313,6 +325,17 @@ if __name__ == "__main__":
                         elif ev.unicode == 'p':
                             print("Pressed p, Paused")
                             is_start = False
+                        elif ev.unicode == 'q':
+                            print("Pressed Q, exit and save")
+                            data = pd.read_csv(open(database_file, "rb" ))
+                            pre_add_rep = int(data[(data.name == name) & (data.gesture == gesture)]['repetition'])
+                            pickle.dump( [emg_data,imu,is_recording] , open('examples/data/'+ name + "_" + gesture + "_" + str(pre_add_rep+1) + "_" + "emg_imu_rec.p", "wb" ) )
+                            data.loc[(data.name == name) & (data.gesture == gesture),['repetition']] = int(data[(data.name == name) & (data.gesture == gesture)]['repetition']) + 1
+                            data.to_csv(open(database_file, "wb" ), index = False)
+                            is_start = False
+                            print("saved")
+                            raise KeyboardInterrupt()
     except KeyboardInterrupt:
         print(min_roll,max_roll,min_pitch,max_pitch)
         print("Quitting")
+        quit()
