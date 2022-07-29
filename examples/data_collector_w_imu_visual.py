@@ -24,7 +24,8 @@ is_start = False
 count_list = [0]*10
 R_myo_tty = str(b'\x00\x03\x00\x00\x08Swiss.np')
 database_file = 'examples/database.csv'
-record_cache = []
+record_cache_imu = []
+record_cache_emg = []
 
 def cls():
 	# Clear the screen in a cross platform way
@@ -270,7 +271,7 @@ if __name__ == "__main__":
 
     video_flags = OPENGL | DOUBLEBUF
     pygame.init()
-    p = multiprocessing.Process(target=worker, args=(q,r))
+    p = multiprocessing.Process(target=worker, args=(q,))
     p.start()
     screen = pygame.display.set_mode((640, 480), video_flags)
     pygame.display.set_caption("IMU orientation visualization")
@@ -282,62 +283,69 @@ if __name__ == "__main__":
         while True:
             while not(q.empty()):
                 emg_imu = list(q.get())
-                print(emg_imu)
-                # quat, acc, gyro = imu
-                # emg = list(r.get())
-                # emg_data , moving = emg
-                # print("Quaternions:", quat)
-                # print("Acceleration:", acc)
-                # print("Gyroscope:", gyro)
-                # [w, nx, ny, nz] = [x/16384 for x in quat]
-                # try:
-                #     [yaw, pitch , roll] = quat_to_ypr([w, nx, ny, nz])
-                #     adjusted_yaw = keep_domain(yaw - neutral_yaw)
-                #     adjusted_pitch = keep_domain(pitch - neutral_pitch)
-                #     adjusted_roll = keep_domain(roll - neutral_roll)
-                # except ValueError:
-                #     adjusted_yaw = 0
-                #     adjusted_pitch = 0
-                #     adjusted_roll = 0
-                # draw(1, adjusted_yaw, adjusted_pitch, adjusted_roll)
-                # pygame.display.flip()
-                # if is_start:
-                #     is_recording = check_is_recording_moe(adjusted_roll,adjusted_pitch)
-                #     record_cache.append([emg_data,imu,is_recording,adjusted_yaw,adjusted_pitch,adjusted_roll])
-                # frames += 1      
-                # print("fps: %d" % ((frames*1000)/(pygame.time.get_ticks()-ticks)))
-
-                # for ev in pygame.event.get():
-                #     if ev.type == QUIT:
-                #         raise KeyboardInterrupt()
-                #     elif ev.type == KEYDOWN:
-                #         if ev.unicode == 'c':
-                #             neutral_roll = roll 
-                #             neutral_pitch = pitch
-                #             neutral_yaw = yaw
-                #         elif ev.unicode == 'e':
-                #             print("Pressed e, erasing calibration")
-                #             neutral_roll = 0 
-                #             neutral_pitch = 0
-                #             neutral_yaw = 0
-                #         elif ev.unicode == 's':
-                #             print("Pressed s, Started")
-                #             print('start record')
-                #             is_recording = True
-                #             is_start = True
-                #         elif ev.unicode == 'p':
-                #             print("Pressed p, Paused")
-                #             is_start = False
-                #         elif ev.unicode == 'q':
-                #             print("Pressed q, exit and save")
-                #             data = pd.read_csv(open(database_file, "rb" ))
-                #             pre_add_rep = int(data[(data.name == name) & (data.gesture == gesture)]['repetition'])
-                #             pickle.dump(record_cache, open('examples/data/'+ name + "_" + gesture + "_" + str(pre_add_rep+1) + "_" + "emg_imu_rec.p", "wb" ) )
-                #             data.loc[(data.name == name) & (data.gesture == gesture),['repetition']] = int(data[(data.name == name) & (data.gesture == gesture)]['repetition']) + 1
-                #             data.to_csv(open(database_file, "wb" ), index = False)
-                #             is_start = False
-                #             print("saved")
-                #             raise KeyboardInterrupt()
+                if len(emg_imu) != 8:
+                    quat, acc, gyro = emg_imu
+                    # print("Quaternions:", quat)
+                    # print("Acceleration:", acc)
+                    # print("Gyroscope:", gyro)
+                    [w, nx, ny, nz] = [x/16384 for x in quat]
+                    try:
+                        [yaw, pitch , roll] = quat_to_ypr([w, nx, ny, nz])
+                        adjusted_yaw = keep_domain(yaw - neutral_yaw)
+                        adjusted_pitch = keep_domain(pitch - neutral_pitch)
+                        adjusted_roll = keep_domain(roll - neutral_roll)
+                    except ValueError:
+                        adjusted_yaw = 0
+                        adjusted_pitch = 0
+                        adjusted_roll = 0
+                    draw(1, adjusted_yaw, adjusted_pitch, adjusted_roll)
+                    pygame.display.flip()
+                    if is_start:
+                        is_recording = check_is_recording_moe(adjusted_roll,adjusted_pitch)
+                        imu_data = emg_imu
+                        adjusted_ypr = [adjusted_yaw,adjusted_pitch,adjusted_roll]
+                        neutral_ypr = [neutral_yaw,neutral_pitch,neutral_roll]
+                        record_cache_imu.append([imu_data,adjusted_ypr,neutral_ypr,is_recording,pygame.time.get_ticks()])
+                    # frames += 1      
+                    # print("fps: %d" % ((frames*1000)/(pygame.time.get_ticks()-ticks)))
+                else:
+                    emg_data = emg_imu 
+                    if is_start:
+                        record_cache_emg.append([emg_data,is_recording,pygame.time.get_ticks()])
+                for ev in pygame.event.get():
+                    if ev.type == QUIT:
+                        raise KeyboardInterrupt()
+                    elif ev.type == KEYDOWN:
+                        if ev.unicode == 'c':
+                            neutral_roll = roll 
+                            neutral_pitch = pitch
+                            neutral_yaw = yaw
+                        elif ev.unicode == 'e':
+                            print("Pressed e, erasing calibration")
+                            neutral_roll = 0 
+                            neutral_pitch = 0
+                            neutral_yaw = 0
+                        elif ev.unicode == 's':
+                            print("Pressed s, Started")
+                            print('start record')
+                            is_recording = True
+                            is_start = True
+                        elif ev.unicode == 'p':
+                            print("Pressed p, Paused")
+                            is_start = False
+                        elif ev.unicode == 'q':
+                            print("Pressed q, exit and save")
+                            data = pd.read_csv(open(database_file, "rb" ))
+                            pre_add_rep = int(data[(data.name == name) & (data.gesture == gesture)]['repetition'])
+                            pickle.dump(record_cache_emg, open('examples/data/'+ name + "_" + gesture + "_" + str(pre_add_rep+1) + "_" + "emg_rec.p", "wb" ) )
+                            pickle.dump(record_cache_imu, open('examples/data/'+ name + "_" + gesture + "_" + str(pre_add_rep+1) + "_" + "imu_rec.p", "wb" ) )
+                            data.loc[(data.name == name) & (data.gesture == gesture),['repetition']] = int(data[(data.name == name) & (data.gesture == gesture)]['repetition']) + 1
+                            data.to_csv(open(database_file, "wb" ), index = False)
+                            is_start = False
+                            record_cache_emg = []
+                            record_cache_imu = []
+                            print("saved")
+                            raise KeyboardInterrupt()
     except KeyboardInterrupt:
         print(min_roll,max_roll,min_pitch,max_pitch)
         print("Quitting")
