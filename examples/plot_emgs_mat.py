@@ -17,6 +17,7 @@ q = multiprocessing.Queue()
 def worker(q):
 	m = Myo(mode=emg_mode.PREPROCESSED)
 	m.connect()
+ 
 	
 	def add_to_queue(emg, movement):
 		q.put(emg)

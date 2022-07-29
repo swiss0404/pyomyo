@@ -24,6 +24,7 @@ is_start = False
 count_list = [0]*10
 R_myo_tty = str(b'\x00\x03\x00\x00\x08Swiss.np')
 database_file = 'examples/database.csv'
+record_cache = []
 
 def cls():
 	# Clear the screen in a cross platform way
@@ -32,33 +33,37 @@ def cls():
 
 # ------------ Myo Setup ---------------
 q = multiprocessing.Queue()
-r = multiprocessing.Queue()
 
-def worker(q,r):
-	myo_R = Myo(mode=emg_mode.FILTERED)
-	myo_R.connect()
-
-	def add_to_queue(quat, acc, gyro):
-		imu_data = [quat, acc, gyro]
-		q.put(imu_data)
-
-	myo_R.add_imu_handler(add_to_queue)
-
-	def emg_handler(emg, moving):
-		emg_data = [emg, moving]
-		r.put(emg_data)
+def worker(q):
+    m = Myo(mode=emg_mode.PREPROCESSED)
+    m.connect()
+    
+    def add_to_queue_emg(emg, movement):
+        q.put(emg)
         
-	myo_R.add_emg_handler(emg_handler)
 
-	# Orange logo and bar LEDs
-	myo_R.set_leds([128, 128, 0], [128, 128, 0])
-	# Vibrate to know we connected okay
-	myo_R.vibrate(1)
-	
-	"""worker function"""
-	while True:
-		myo_R.run()
-	print("Worker Stopped")
+    m.add_emg_handler(add_to_queue_emg)
+    
+    def add_to_queue_imu(quat, acc, gyro):
+        imu_data = [quat, acc, gyro]
+        q.put(imu_data)
+    
+    m.add_imu_handler(add_to_queue_imu)
+    
+    def print_battery(bat):
+        print("Battery level:", bat)
+
+    m.add_battery_handler(print_battery)
+
+     # Orange logo and bar LEDs
+    m.set_leds([128, 0, 0], [128, 0, 0])
+    # Vibrate to know we connected okay
+    m.vibrate(1)
+    
+    """worker function"""
+    while True:
+        m.run()
+    print("Worker Stopped")
 
 # -------- Main Program Loop -----------
 
@@ -161,7 +166,7 @@ def quat_to_ypr(q):
     roll  = math.atan2(2.0 * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3])
     pitch *= 180.0 / math.pi
     yaw   *= 180.0 / math.pi
-    yaw   -= -0.13  # Declination at Chandrapur, Maharashtra is - 0 degress 13 min
+    yaw   -= 0  # Declination at Chandrapur, Maharashtra is - 0 degress 13 min bangkok thailand is idk
     roll  *= 180.0 / math.pi
     return [yaw, pitch, roll]
 
@@ -203,7 +208,7 @@ def name_prompt(data):
             print('Invalid value')
 
 
-def gesture_prompt(data, name):
+def gesture_prompt(data, name): 
     while True:
         print('please choose gesture')
         for i in range(len(data[data.name == name]['gesture'])):
@@ -273,65 +278,66 @@ if __name__ == "__main__":
     init()
     frames = 0
     ticks = pygame.time.get_ticks()
-    print(count_list)
     try:
         while True:
             while not(q.empty()):
-                imu = list(q.get())
-                quat, acc, gyro = imu
-                emg = list(r.get())
-                emg_data , moving = emg
+                emg_imu = list(q.get())
+                print(emg_imu)
+                # quat, acc, gyro = imu
+                # emg = list(r.get())
+                # emg_data , moving = emg
                 # print("Quaternions:", quat)
                 # print("Acceleration:", acc)
                 # print("Gyroscope:", gyro)
-                [w, nx, ny, nz] = [x/16384 for x in quat]
-                try:
-                    [yaw, pitch , roll] = quat_to_ypr([w, nx, ny, nz])
-                    adjusted_yaw = keep_domain(yaw - neutral_yaw)
-                    adjusted_pitch = keep_domain(pitch - neutral_pitch)
-                    adjusted_roll = keep_domain(roll - neutral_roll)
-                except ValueError:
-                    adjusted_yaw = 0
-                    adjusted_pitch = 0
-                    adjusted_roll = 0
-                draw(1, adjusted_yaw, adjusted_pitch, adjusted_roll)
-                pygame.display.flip()
-                if is_start:
-                    is_recording = check_is_recording_moe(adjusted_roll,adjusted_pitch)
-                # frames += 1
+                # [w, nx, ny, nz] = [x/16384 for x in quat]
+                # try:
+                #     [yaw, pitch , roll] = quat_to_ypr([w, nx, ny, nz])
+                #     adjusted_yaw = keep_domain(yaw - neutral_yaw)
+                #     adjusted_pitch = keep_domain(pitch - neutral_pitch)
+                #     adjusted_roll = keep_domain(roll - neutral_roll)
+                # except ValueError:
+                #     adjusted_yaw = 0
+                #     adjusted_pitch = 0
+                #     adjusted_roll = 0
+                # draw(1, adjusted_yaw, adjusted_pitch, adjusted_roll)
+                # pygame.display.flip()
+                # if is_start:
+                #     is_recording = check_is_recording_moe(adjusted_roll,adjusted_pitch)
+                #     record_cache.append([emg_data,imu,is_recording,adjusted_yaw,adjusted_pitch,adjusted_roll])
+                # frames += 1      
                 # print("fps: %d" % ((frames*1000)/(pygame.time.get_ticks()-ticks)))
 
-                for ev in pygame.event.get():
-                    if ev.type == QUIT:
-                        raise KeyboardInterrupt()
-                    elif ev.type == KEYDOWN:
-                        if ev.unicode == 'c':
-                            neutral_roll = roll 
-                            neutral_pitch = pitch
-                            neutral_yaw = yaw
-                        elif ev.unicode == 'e':
-                            print("Pressed e, erasing calibration")
-                            neutral_roll = 0 
-                            neutral_pitch = 0
-                            neutral_yaw = 0
-                        elif ev.unicode == 's':
-                            print("Pressed s, Started")
-                            print('start record')
-                            is_recording = True
-                            is_start = True
-                        elif ev.unicode == 'p':
-                            print("Pressed p, Paused")
-                            is_start = False
-                        elif ev.unicode == 'q':
-                            print("Pressed Q, exit and save")
-                            data = pd.read_csv(open(database_file, "rb" ))
-                            pre_add_rep = int(data[(data.name == name) & (data.gesture == gesture)]['repetition'])
-                            pickle.dump( [emg_data,imu,is_recording] , open('examples/data/'+ name + "_" + gesture + "_" + str(pre_add_rep+1) + "_" + "emg_imu_rec.p", "wb" ) )
-                            data.loc[(data.name == name) & (data.gesture == gesture),['repetition']] = int(data[(data.name == name) & (data.gesture == gesture)]['repetition']) + 1
-                            data.to_csv(open(database_file, "wb" ), index = False)
-                            is_start = False
-                            print("saved")
-                            raise KeyboardInterrupt()
+                # for ev in pygame.event.get():
+                #     if ev.type == QUIT:
+                #         raise KeyboardInterrupt()
+                #     elif ev.type == KEYDOWN:
+                #         if ev.unicode == 'c':
+                #             neutral_roll = roll 
+                #             neutral_pitch = pitch
+                #             neutral_yaw = yaw
+                #         elif ev.unicode == 'e':
+                #             print("Pressed e, erasing calibration")
+                #             neutral_roll = 0 
+                #             neutral_pitch = 0
+                #             neutral_yaw = 0
+                #         elif ev.unicode == 's':
+                #             print("Pressed s, Started")
+                #             print('start record')
+                #             is_recording = True
+                #             is_start = True
+                #         elif ev.unicode == 'p':
+                #             print("Pressed p, Paused")
+                #             is_start = False
+                #         elif ev.unicode == 'q':
+                #             print("Pressed q, exit and save")
+                #             data = pd.read_csv(open(database_file, "rb" ))
+                #             pre_add_rep = int(data[(data.name == name) & (data.gesture == gesture)]['repetition'])
+                #             pickle.dump(record_cache, open('examples/data/'+ name + "_" + gesture + "_" + str(pre_add_rep+1) + "_" + "emg_imu_rec.p", "wb" ) )
+                #             data.loc[(data.name == name) & (data.gesture == gesture),['repetition']] = int(data[(data.name == name) & (data.gesture == gesture)]['repetition']) + 1
+                #             data.to_csv(open(database_file, "wb" ), index = False)
+                #             is_start = False
+                #             print("saved")
+                #             raise KeyboardInterrupt()
     except KeyboardInterrupt:
         print(min_roll,max_roll,min_pitch,max_pitch)
         print("Quitting")
