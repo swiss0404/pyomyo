@@ -1,30 +1,45 @@
 import pickle
 import pandas as pd
 import matplotlib.pyplot as plt
-pad = pickle.load(open('/Users/swiss/projects/myo-raw/swiss_fist_12_emg_accu.p','rb'))
+from matplotlib.collections import LineCollection
+
+pad = pickle.load(open('examples/data/song_fist_1_emg_rec.p','rb'))
+print(pad)
 new_emg = []
+is_recording = []
+ticks = []
 for sample in pad:
-    emg = sample[0]
-    new_emg.append(emg)
+    new_emg.append(sample[0])
+    is_recording.append(sample[1])
+    ticks.append(sample[2])
+
+
+max = -10000000000
+min = 10000000000
+for emg_8_channel in new_emg:
+    for each_channel in emg_8_channel:
+        if max < each_channel:
+            max = each_channel
+        if min > each_channel:
+            min = each_channel   
+            
+
+ticks = [(tick - ticks[0])/1000 for tick in ticks] #normalize ticks and change milisec into sec
+c = [0 if a else 1 for a in is_recording]
 df_emg = pd.DataFrame(new_emg, columns=range(1,9))
-df_emg
-print(df_emg)
+
 fig, (ax0, ax1, ax2, ax3, ax4, ax5, ax6, ax7) = plt.subplots(nrows=8)
-ax0.plot(df_emg[1])
-ax1.plot(df_emg[2])
-ax2.plot(df_emg[3])
-ax3.plot(df_emg[4])
-ax4.plot(df_emg[5])
-ax5.plot(df_emg[6])
-ax6.plot(df_emg[7])
-ax7.plot(df_emg[8])
-# ax0.set_ylim(0, 1000)
-# ax1.set_ylim(0, 1000)
-# ax2.set_ylim(0, 1000)
-# ax3.set_ylim(0, 1000)
-# ax4.set_ylim(0, 1000)
-# ax5.set_ylim(0, 1000)
-# ax6.set_ylim(0, 1000)
-# ax7.set_ylim(0, 1000)
+
+c = ['green' if a else 'black' for a in is_recording]
+subplot_list = [ax0, ax1, ax2, ax3, ax4, ax5, ax6, ax7]
+channel = 1
+for i in subplot_list:
+    lines = [((x0,y0), (x1,y1)) for x0, y0, x1, y1 in zip(ticks[:-1], df_emg[channel][:-1], ticks[1:], df_emg[channel][1:])]
+    colored_lines = LineCollection(lines, colors=c, linewidths=(2,))
+    i.add_collection(colored_lines)
+    i.autoscale_view()
+    channel += 1
+
+plt.setp((ax0, ax1, ax2, ax3, ax4, ax5, ax6, ax7), ylim=(min,max))
 
 plt.show()
