@@ -1,13 +1,13 @@
 import time
 from pyomyo import Myo, emg_mode
 
-'''
+"""
 Utility script to poweroff the Myo
 The Myo goes into sleep mode by default.
 It can be woken by shaking it.
 To actually turn the Myo off you need to explicitly send a power off command.
 To turn it back on again, you need to charge it.
-'''
+"""
 
 # Make a Myo object
 m = Myo(mode=emg_mode.RAW)
