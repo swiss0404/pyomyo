@@ -214,7 +214,7 @@ class BT(object):
 			# not a response: must be an event
 			self.handle_event(p)
 
-
+import pickle
 class Myo(object):
 	'''Implements the Myo-specific communication protocol.'''
 
@@ -223,7 +223,6 @@ class Myo(object):
 			tty = self.detect_tty()
 		if tty is None:
 			raise ValueError('Myo dongle not found!')
-
 		self.bt = BT(tty)
 		self.conn = None
 		self.emg_handlers = []
@@ -265,9 +264,11 @@ class Myo(object):
 
 				if p.payload.endswith(b'\x06\x42\x48\x12\x4A\x7F\x2C\x48\x47\xB9\xDE\x04\xA9\x01\x00\x06\xD5'):
 					addr = list(multiord(p.payload[2:8]))
+					print("mac address", addr)
 					break
 			self.bt.end_scan()
 		# connect and wait for status event
+		print("mac:", addr)
 		conn_pkt = self.bt.connect(addr)
 		self.conn = multiord(conn_pkt.payload)[-1]
 		self.bt.wait_event(3, 0)

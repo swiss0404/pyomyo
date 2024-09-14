@@ -12,6 +12,7 @@ import re
 import sys
 import os
 from pyomyo import Myo, emg_mode
+import threading
 
 # current_dir = os.path.dirname(os.path.abspath(__file__))
 # parent_dir = os.path.dirname(current_dir)
@@ -43,6 +44,7 @@ record_cache_emg_l = []
 last_vals = None
 emg_data = None
 preprocess = False
+pending_action = None
 
 
 def cls():
@@ -54,6 +56,11 @@ def cls():
 # ------------ Myo Setup ---------------
 q_l = multiprocessing.Queue()
 q_r = multiprocessing.Queue()
+imu_l_lock = threading.Lock()
+imu_l_shared = None
+is_start_lock = threading.Lock()
+record_cache_emg_l_lock = threading.Lock()
+record_cache_imu_l_lock = threading.Lock()
 
 
 def detect_tty():
@@ -69,6 +76,7 @@ def myo_worker(myo_queue, tty, color, mac_address):
     """Worker function for handling Myo data collection."""
     myo_device = Myo(tty=tty, mode=emg_mode.RAW)
     myo_device.connect(addr=mac_address)
+    print(f"Connected to Myo device at {tty} with MAC address {mac_address}")
 
     def emg_handler(emg, movement):
         myo_queue.put(emg)
@@ -94,7 +102,8 @@ def myo_worker(myo_queue, tty, color, mac_address):
 def calibrate(quat_r, quat_l):
     global is_calibrated, neutral_roll_r, neutral_pitch_r, neutral_yaw_r, neutral_roll_l, neutral_pitch_l, neutral_yaw_l, is_start
     is_calibrated = True
-    is_start = True
+    with is_start_lock:
+        is_start = True
     neutral_roll_r, neutral_pitch_r, neutral_yaw_r = quat_to_ypr(quat_r)
     neutral_roll_l, neutral_pitch_l, neutral_yaw_l = quat_to_ypr(quat_l)
 
@@ -103,14 +112,17 @@ def start_recording():
     global is_recording, is_start
     if is_calibrated:
         is_recording = True
-        is_start = True
+        with is_start_lock:
+            is_start = True
         print("Recording started")
     else:
         print("Please calibrate before starting")
 
 
 def pause_recording():
-    is_start = False
+    global is_start
+    with is_start_lock:
+        is_start = False
     print("Recording paused")
 
 
@@ -131,18 +143,19 @@ def save_data():
         print(f"IMU data saved to {imu_file_path}")
 
     # Save IMU data
-    if record_cache_emg_l:
-        emg_file_path = f"examples/data/{name}_{gesture}_{pre_add_rep}_emg_rec_l.p"
-        with open(emg_file_path, "wb") as f:
-            pickle.dump(record_cache_emg_l, f)
-        print(f"EMG data saved to {emg_file_path}")
-
-    if record_cache_imu_l:
-        imu_file_path = f"examples/data/{name}_{gesture}_{pre_add_rep}_imu_rec_l.p"
-        with open(imu_file_path, "wb") as f:
-            pickle.dump(record_cache_imu_l, f)
-        print(f"IMU data saved to {imu_file_path}")
-
+    with record_cache_emg_l_lock:
+        if record_cache_emg_l:
+            emg_file_path = f"examples/data/{name}_{gesture}_{pre_add_rep}_emg_rec_l.p"
+            with open(emg_file_path, "wb") as f:
+                pickle.dump(record_cache_emg_l, f)
+            print(f"EMG data saved to {emg_file_path}")
+    with record_cache_imu_l_lock:
+        if record_cache_imu_l:
+            imu_file_path = f"examples/data/{name}_{gesture}_{pre_add_rep}_imu_rec_l.p"
+            with open(imu_file_path, "wb") as f:
+                pickle.dump(record_cache_imu_l, f)
+            print(f"IMU data saved to {imu_file_path}")
+    print(pre_add_rep)
     # Update repetition count in the dataset and save
     data.loc[(data.name == name) & (data.gesture == gesture), "repetition"] = (
         pre_add_rep
@@ -196,25 +209,36 @@ def erase_calibration():
     print("Calibration erased")
 
 
-def go_back():
+def actual_go_back():
     global is_recording, is_calibrated, record_cache_emg_r, record_cache_imu_r, pre_add_rep, record_cache_emg_l, record_cache_imu_l, is_start
     if is_start or is_recording:
-        pre_add_rep -= 1
-        is_start = False
+        with is_start_lock:
+            is_start = False
         is_recording = False
         record_cache_emg_r = []
         record_cache_imu_r = []
+        record_cache_emg_l = []
+        record_cache_imu_l = []
         print("All actions canceled and parameters reset.")
     else:
         print("No active session to go back from.")
 
 
-key_actions = set(["c", "s", "p", "q", "n", "e", "b"])
+def go_back():
+    global confirm_prompt, pending_action
+    confirm_prompt = True
+    pending_action = "go_back"
 
 
-def handle_event(event, quat_r, quat_l):
+key_actions_set = set(["c", "s", "p", "q", "n", "e", "b"])
+
+
+def handle_event(event, quat_r):
+    global imu_l_shared
+    with imu_l_lock:
+        imu_l = imu_l_shared
     key_actions = {
-        "c": lambda: calibrate(quat_r, quat_l),
+        "c": lambda: calibrate(quat_r, imu_l),
         "s": start_recording,
         "p": pause_recording,
         "q": save_and_exit,
@@ -270,7 +294,7 @@ def draw(w, nx, ny, nz):
             if confirm_prompt:
                 drawTextwithColor(
                     (-2.6, -2, 2),
-                    f"REVERT BACK to {pre_add_rep-1} CONFIRM? press 'y' to confirm any to abort",
+                    f"REVERT BACK to {pre_add_rep} CONFIRM? press 'y' to confirm any to abort",
                     16,
                     color=(255, 0, 0),
                 )
@@ -312,7 +336,7 @@ def draw(w, nx, ny, nz):
             if confirm_prompt:
                 drawTextwithColor(
                     (-2.6, -2, 2),
-                    f"REVERT BACK to {pre_add_rep-1} CONFIRM? press 'y' to confirm any to abort",
+                    f"REVERT BACK to {pre_add_rep} CONFIRM? press 'y' to confirm any to abort",
                     16,
                     color=(255, 0, 0),
                 )
@@ -544,6 +568,46 @@ def process_imu(record_cache_imu, imu_data, adjusted_ypr, neutral_ypr):
     )
 
 
+def process_left_myo():
+    global imu_l_shared, record_cache_emg_r
+    try:
+        while not shutdown_event.is_set():
+            if not q_l.empty():
+                emg_or_imu_l = q_l.get()
+                if emg_or_imu_l and len(emg_or_imu_l) == 3:
+                    # Process IMU data
+                    with imu_l_lock:
+                        imu_l_shared = emg_or_imu_l[0]
+                    imu_l = emg_or_imu_l[0]
+                    adjusted_ypr = quat_to_adjusted_ypr(
+                        imu_l, neutral_yaw_l, neutral_pitch_l, neutral_roll_l
+                    )
+                    print(is_start)
+                    with is_start_lock:
+                        if is_start:
+                            with record_cache_imu_l_lock:
+                                process_imu(
+                                    record_cache_imu_l,
+                                    emg_or_imu_l,
+                                    adjusted_ypr,
+                                    [neutral_yaw_l, neutral_pitch_l, neutral_roll_l],
+                                )
+                elif emg_or_imu_l:
+                    # Process EMG data
+                    with is_start_lock:
+                        if is_start:
+                            with record_cache_emg_l_lock:
+                                record_cache_emg_l.append(
+                                    [
+                                        emg_or_imu_l,
+                                        is_recording,
+                                        pygame.time.get_ticks(),
+                                    ]
+                                )
+    except KeyboardInterrupt:
+        pass
+
+
 if __name__ == "__main__":
     data = pd.read_csv(open(database_file, "rb"))
     name = name_prompt(data)
@@ -570,6 +634,9 @@ if __name__ == "__main__":
 
     p_left.start()
     p_right.start()
+    shutdown_event = threading.Event()
+    left_myo_thread = threading.Thread(target=process_left_myo)
+    left_myo_thread.start()
     screen = pygame.display.set_mode((640, 480), video_flags)
     pygame.display.set_caption("Data collector with IMU")
     resizewin(640, 480)
@@ -579,9 +646,8 @@ if __name__ == "__main__":
 
     try:
         while True:
-            while not (q_r.empty()) or not (q_l.empty()):
+            while not (q_r.empty()):
                 emg_or_imu_r = q_r.get()
-                emg_or_imu_l = q_l.get()
                 if emg_or_imu_r is not None:
                     if len(emg_or_imu_r) != 8:
                         imu_r = emg_or_imu_r[0]
@@ -608,47 +674,34 @@ if __name__ == "__main__":
                             record_cache_emg_r.append(
                                 [emg_or_imu_r, is_recording, pygame.time.get_ticks()]
                             )
-                if emg_or_imu_l is not None:
-                    if len(emg_or_imu_l) != 8:
-                        imu_l = emg_or_imu_l[0]
-                        adjusted_ypr = quat_to_adjusted_ypr(
-                            emg_or_imu_l[0],
-                            neutral_yaw_l,
-                            neutral_pitch_l,
-                            neutral_roll_l,
-                        )
-                        if is_start:
-                            process_imu(
-                                record_cache_imu_l,
-                                emg_or_imu_l,
-                                adjusted_ypr,
-                                [neutral_yaw_l, neutral_pitch_l, neutral_roll_l],
-                            )
-                    else:
-                        if is_start:
-                            record_cache_emg_l.append(
-                                [emg_or_imu_l, is_recording, pygame.time.get_ticks()]
-                            )
 
                 for event in pygame.event.get():
                     if event.type == QUIT:
                         raise KeyboardInterrupt()
                     elif event.type == KEYDOWN:
                         if not confirm_prompt:
-                            if event.unicode in key_actions:
-                                handle_event(event, imu_r, imu_l)
+                            if event.unicode in key_actions_set:
+                                handle_event(event, imu_r)
                         else:
                             if event.unicode == "y":
                                 # Confirm prompt handling
                                 confirm_prompt = False
+                                # Execute the pending action
+                                if pending_action == "go_back":
+                                    actual_go_back()
+                                # Reset pending_action
+                                pending_action = None
                                 print("Confirmation accepted")
                             else:
                                 # Cancel the prompt
                                 confirm_prompt = False
+                                pending_action = None
                                 print("Confirmation cancelled")
     except KeyboardInterrupt:
         print("Quitting")
         pygame.display.quit()
+        shutdown_event.set()
+        left_myo_thread.join()
         p_left.terminate()
         p_right.terminate()
         p_left.join()
