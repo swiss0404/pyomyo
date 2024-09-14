@@ -14,3 +14,4 @@ Pipfile
 database.csv
 *.dat
 */.ipynb_checkpoints/*
+examples/database.csv
